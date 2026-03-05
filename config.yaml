@@ -1,0 +1,90 @@
+# config.yaml
+
+# 1. 專案管理   
+project:
+  name: 'fold5_IAL_v27'
+  experiment_description: '5-Fold IAL'
+
+# 2. 資料集設定)
+dataset:
+  source_dir: './data/all' # 包含 'images' 和 'labels' 的原始資料目錄
+  temp_dir: './runs/temp_data_configs' # 儲存 K-Fold 劃分和迭代 .yaml 檔案
+  nc: 2
+  names: ['polyp', 'tumor']
+
+# 3. 模型設定
+model:
+  variant: 'yolov8m.pt' # 每次迭代的 Iter 1 都會從這裡開始
+
+# 4. 訓練超參數
+training:
+  epochs: 500
+  patience: 100
+  batch_size: 32   # 如果改用 img_size 960，這裡可能要降到 16 或 24
+  workers: 4 
+  img_size: 640    
+  optimizer: 'AdamW'
+  lr0: 0.001
+  lrf: 0.01
+  cls: 2.0         
+  box: 7.5
+  
+  augmentations:
+    degrees: 15.0  
+    translate: 0.1
+    scale: 0.5
+    shear: 0.0     # 嚴禁剪切變形，這會破壞瘜肉形狀
+    perspective: 0.0
+    mosaic: 1.0
+    mixup: 0.1
+    hsv_s: 0.7     
+    hsv_v: 0.4     
+    
+# 4b. Finetune 專用超參數 (用於 Iter 2+)
+finetune_training:
+  epochs: 50       # Finetune 只需較少 epochs
+  patience: 80 
+  batch_size: 16
+  workers: 2
+  img_size: 640
+  optimizer: 'AdamW'
+  lr0: 0.0001       # 必須使用*極低*學習率
+  lrf: 0.1
+  weight_decay: 0.0005
+  augmentations:
+    degrees: 15.0
+    translate: 0.1
+    scale: 0.0
+    shear: 0.0
+    perspective: 0.0
+    flipud: 0.5
+    fliplr: 0.5
+    mosaic: 0.0     # Finetune 階段必須關閉 mosaic
+    mixup: 0.0
+    copy_paste: 0.3    
+
+# 5. 自動化與主動學習
+automation:
+  strategy: 'kfold_active_learning'
+  k_folds: 5 
+  best_model_metric: 'metrics/mAP50(B)' # 用於 trainer 內部 early stopping
+
+active_learning:
+  # 總 Folds 必須 = k_folds (例如 5)
+  # 劃分: 2 (40%) 初始訓練 + 2 (40%) 挖掘池 + 1 (20%) 測試
+  initial_train_folds: 2
+  candidate_pool_folds: 2
+  test_fold_count: 1
+  
+  iterations: 5  # 總迭代次數
+
+# 6. 難例挖掘標準
+mining_criteria:
+  match_iou_threshold: 0.45  # IoU >= 0.5 視為 "匹配"
+  fp_confidence_threshold: 0.1 # 信心 > 0.1 的預測框才被考慮是否為 FP
+
+  # 困難度分數權重
+  score_weights:
+    fn_weight: 5.0          # 把瘜肉腫瘤看成背景 (FN)
+    fp_weight: 3.0          # 把背景誤判為瘜肉 (FP)
+    class_error_weight: 1.0  
